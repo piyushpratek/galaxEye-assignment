@@ -1,6 +1,5 @@
 import express from 'express'
 import type { Application, Request, Response } from 'express'
-import { get } from 'http'
 
 const app: Application = express()
 

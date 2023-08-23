@@ -1,99 +1,110 @@
-import LocationMarker from "./component/LocationMarker"
-import "./App.css"
-import { getIntersectingTiles } from "./component/getIntersectingTiles";
+import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, FeatureGroup, Polygon } from "react-leaflet";
+import "leaflet-draw/dist/leaflet.draw.css";
+import { EditControl } from "react-leaflet-draw";
+import L, { LatLng, LatLngLiteral } from "leaflet";
+import 'leaflet/dist/leaflet.css';
+import "leaflet-draw/dist/leaflet.draw.css";
 import tilesData from "./data/karnataka.json"
-import { useState, useEffect, useRef } from "react";
-import L from "leaflet";
-import "leaflet-draw";
-import { MapContainer, TileLayer } from "react-leaflet";
-import { TileFeature } from "./types";
+import booleanIntersects from "@turf/boolean-intersects";
+import { GeoJSONTile } from "./types/types";
 
-const App: React.FC = () => {
-  const [aoi, setAoi] = useState<L.Layer | null>(null);
-  const [intersectingTiles, setIntersectingTiles] = useState<TileFeature[]>([]);
+function App() {
+  const [drawnLayers, setDrawnLayers] = useState<LatLngLiteral[][]>([]);
+  const [intersectingTiles, setIntersectingTiles] = useState<GeoJSONTile[]>([]);
 
   useEffect(() => {
-    if (tilesData.features.length > 0 && aoi) {
-      let aoiGeoJSON;
+    const tiles = tilesData.features;
+    const intersectingTiles: GeoJSONTile[] = [];
 
-      if (aoi instanceof L.Marker) {
-        const marker = aoi as L.Marker;
-        aoiGeoJSON = marker.toGeoJSON();
-      } else if (aoi instanceof L.Polygon) {
-        const polygon = aoi as L.Polygon;
-        aoiGeoJSON = polygon.toGeoJSON();
-      } else if (aoi instanceof L.Polyline) {
-        const polyline = aoi as L.Polyline;
-        aoiGeoJSON = polyline.toGeoJSON();
-      }
-
-      const intersectingTiles = getIntersectingTiles(
-        aoiGeoJSON,
-        tilesData.features
+    tiles.forEach((tile: any) => {
+      const tileCoords = tile.geometry.coordinates[0];
+      const tileLatLngs: LatLng[] = tileCoords.map(
+        (coord: number[]) => new LatLng(coord[1], coord[0])
       );
-      setIntersectingTiles(intersectingTiles);
-    }
-  }, [aoi]);
 
-  useEffect(() => {
-    const map = L.map("map");
-    const drawnItems = new L.FeatureGroup();
-    map.addLayer(drawnItems);
+      if (drawnLayers.length > 0) {
+        const drawnCoords = drawnLayers[0].map(
+          (latLng: LatLngLiteral) => new LatLng(latLng.lat, latLng.lng)
+        );
 
-    const drawControl = new L.Control.Draw({
-      draw: {
-        polygon: {
-          allowIntersection: false,
-          shapeOptions: {
-            color: "blue",
-          },
-        },
-        rectangle: false,
-        circle: false,
-        marker: false,
-        circlemarker: false,
-      },
-      edit: {
-        featureGroup: drawnItems,
-      },
+        const tilePolygon = L.polygon(tileLatLngs);
+        const drawnPolygon = L.polygon(drawnCoords);
+
+        const tileGeoJSON = L.geoJSON(tilePolygon.toGeoJSON());
+        const drawnGeoJSON = L.geoJSON(drawnPolygon.toGeoJSON());
+
+        if (booleanIntersects(tileGeoJSON.toGeoJSON(), drawnGeoJSON.toGeoJSON())) {
+          intersectingTiles.push(tile);
+        }
+      }
     });
 
-    map.addControl(drawControl);
+    setIntersectingTiles(intersectingTiles);
+  }, [drawnLayers]);
 
-    map.on(L.Draw.Event.CREATED, (e: L.LeafletEvent) => {
-      drawnItems.clearLayers();
-      const layer = (e as L.DrawEvents.Created).layer;
-      drawnItems.addLayer(layer);
-      setAoi(layer);
-    });
-    return () => {
-      map.remove()
-    }
-  }, []);
-  const mapRef = useRef<HTMLDivElement | null>(null);
+  const onDrawCreated = (e: any) => {
+    const layer = e.layer;
+    const latLngs: L.LatLng[][] = layer.getLatLngs();
+    const latLngArray: LatLngLiteral[] = latLngs[0].map((latLng: L.LatLng) => ({
+      lat: latLng.lat,
+      lng: latLng.lng,
+    }));
+    setDrawnLayers([latLngArray]);
+  };
 
   return (
-    <>
-      <div className="app">
-        <h1>GalaxEye Dashboard</h1>
-        <div ref={mapRef} id="map" style={{ height: "100vh", width: "100%" }} />
-        <MapContainer
-          id="map"
-          center={[12.9716, 77.5946]}
-          zoom={13}
-          style={{ height: "100vh", width: "100%" }}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors'
+    <div className="App">
+      <MapContainer center={[12.9716, 77.5946]} zoom={6} style={{ height: "100vh" }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <FeatureGroup>
+          <EditControl
+            position="topright"
+            draw={{
+              polygon: {
+                allowIntersection: false,
+                drawError: {
+                  color: "#e1e100",
+                  timeout: 1000,
+                },
+                shapeOptions: {
+                  color: "#97009c",
+                },
+              },
+              circlemarker: false,
+              polyline: false,
+              rectangle: false,
+              circle: false,
+              marker: false,
+            }}
+            onCreated={onDrawCreated}
           />
-        </MapContainer>
-        <LocationMarker intersectingTiles={intersectingTiles} />
-      </div>
-    </>
-  )
+          {drawnLayers.map((latLngArray, index) => (
+            <Polygon key={index} positions={latLngArray} color="red" />
+          ))}
+          {intersectingTiles.map((tile: GeoJSONTile, index: number) => (
+            <Polygon
+              key={`intersecting-tile-${index}`}
+              positions={tile.geometry.coordinates[0].map(
+                (coord: number[]) => new LatLng(coord[1], coord[0])
+              )}
+              color="blue"
+            />
+          ))}
+          {tilesData.features.map((tile: GeoJSONTile, index: number) => (
+            <Polygon
+              key={`tile-${index}`}
+              positions={tile.geometry.coordinates[0].map(
+                (coord: number[]) => new LatLng(coord[1], coord[0])
+              )}
+              color="#00f"
+              fillOpacity={0.2}
+            />
+          ))}
+        </FeatureGroup>
+      </MapContainer>
+    </div>
+  );
 }
 
-export default App
-
-
+export default App;

@@ -1,10 +1,10 @@
 # Use the official Node.js LTS image as the base image
 FROM node:14 AS build
 
-# Set the working directory
+# Setting the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the container
+# Copied package.json and package-lock.json to the container
 COPY package.json package-lock.json ./
 
 # Install dependencies
